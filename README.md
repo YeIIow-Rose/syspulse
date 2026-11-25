@@ -4,7 +4,7 @@ Hafif Linux sistem izleme ajanı (**C11 / POSIX**) ve gerçek zamanlı dashboard
 
 ## Mimari & Sahiplik
 
-- **`agent/` (`dev-agent`)**: `/proc` ve `/sys` üzerinden CPU, Load Average, RAM/Swap, Disk I/O ve process sayılarını düşük overhead ile okuyup `POST /api/v1/metrics` ile iletir.
+- **`agent/` (`dev-agent`)**: `/proc`, `/sys` ve `statvfs` üzerinden CPU, Load (1m), RAM, Disk doluluk/I/O, process sayıları ve Top-5 process listesini düşük overhead ile okuyup `POST /api/v1/metrics` ile iletir.
 - **`backend/` (`dev-backend`)**: Gelen JSON metriklerini doğrular, SQLite veritabanına yazar, eşik aşımında cooldown'lı alert üretir ve SignalR üzerinden `wwwroot/` dashboard'una aktarır.
 - **`docs/CONTRACT.md` (`dev-main`)**: İki taraf arasındaki tek yetkili HTTP/JSON, veritabanı, SignalR ve faz sınırı sözleşmesi.
 - **`tools/` (`dev-main`)**: İki geliştiricinin birbirini beklemeden bağımsız çalışabilmesi için sıfır bağımlılıklı Python 3 mock araçları.

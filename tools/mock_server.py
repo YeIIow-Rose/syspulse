@@ -37,9 +37,6 @@ def validate_payload(data):
     if not isinstance(data, dict):
         return ["Root payload must be a JSON object"]
 
-    if not _is_int(data.get("schema_version")) or data.get("schema_version") != 1:
-        errors.append("schema_version must be integer 1")
-
     host_id = data.get("host_id")
     if not isinstance(host_id, str) or not HOST_ID_RE.match(host_id):
         errors.append("host_id must be a string (1..64 chars, [a-zA-Z0-9._-])")
@@ -47,10 +44,6 @@ def validate_payload(data):
     ts = data.get("timestamp_ms")
     if not _is_int(ts) or ts <= 0:
         errors.append("timestamp_ms must be integer > 0")
-
-    interval = data.get("interval_sec")
-    if not _is_int(interval) or not (1 <= interval <= 3600):
-        errors.append("interval_sec must be integer in 1..3600")
 
     # cpu
     cpu = data.get("cpu")
@@ -60,10 +53,9 @@ def validate_payload(data):
         u = cpu.get("usage_percent")
         if not _is_number(u) or not (0.0 <= float(u) <= 100.0):
             errors.append("cpu.usage_percent must be number in 0.0..100.0")
-        for lf in ("load_1m", "load_5m", "load_15m"):
-            lv = cpu.get(lf)
-            if not _is_number(lv) or float(lv) < 0.0:
-                errors.append(f"cpu.{lf} must be number >= 0.0")
+        l1 = cpu.get("load_1m")
+        if not _is_number(l1) or float(l1) < 0.0:
+            errors.append("cpu.load_1m must be number >= 0.0")
         cores = cpu.get("core_count")
         if not _is_int(cores) or cores < 1:
             errors.append("cpu.core_count must be integer >= 1")
@@ -73,13 +65,7 @@ def validate_payload(data):
     if not isinstance(mem, dict):
         errors.append("memory must be an object")
     else:
-        for mf in (
-            "total_bytes",
-            "used_bytes",
-            "available_bytes",
-            "swap_total_bytes",
-            "swap_used_bytes",
-        ):
+        for mf in ("total_bytes", "used_bytes"):
             mv = mem.get(mf)
             if not _is_int(mv) or mv < 0:
                 errors.append(f"memory.{mf} must be integer >= 0")
@@ -92,10 +78,13 @@ def validate_payload(data):
     if not isinstance(disk, dict):
         errors.append("disk must be an object")
     else:
-        for df in ("read_bytes_per_sec", "write_bytes_per_sec"):
+        for df in ("total_bytes", "used_bytes", "read_bytes_per_sec", "write_bytes_per_sec"):
             dv = disk.get(df)
             if not _is_int(dv) or dv < 0:
                 errors.append(f"disk.{df} must be integer >= 0")
+        du = disk.get("usage_percent")
+        if not _is_number(du) or not (0.0 <= float(du) <= 100.0):
+            errors.append("disk.usage_percent must be number in 0.0..100.0")
 
     # processes
     procs = data.get("processes")
@@ -106,8 +95,30 @@ def validate_payload(data):
             pv = procs.get(pf)
             if not _is_int(pv) or pv < 0:
                 errors.append(f"processes.{pf} must be integer >= 0")
-        if "top" in procs and procs["top"] is not None and not isinstance(procs["top"], list):
-            errors.append("processes.top must be an array or null if present")
+
+        top = procs.get("top")
+        if not isinstance(top, list):
+            errors.append("processes.top must be an array")
+        else:
+            if len(top) > 5:
+                errors.append("processes.top must contain at most 5 items")
+            for idx, item in enumerate(top):
+                prefix = f"processes.top[{idx}]"
+                if not isinstance(item, dict):
+                    errors.append(f"{prefix} must be an object")
+                    continue
+                pid = item.get("pid")
+                if not _is_int(pid) or pid < 1:
+                    errors.append(f"{prefix}.pid must be integer >= 1")
+                pname = item.get("name")
+                if not isinstance(pname, str) or not (1 <= len(pname.strip()) <= 64):
+                    errors.append(f"{prefix}.name must be non-empty string (1..64 chars)")
+                pcpu = item.get("cpu_percent")
+                if not _is_number(pcpu) or not (0.0 <= float(pcpu) <= 100.0):
+                    errors.append(f"{prefix}.cpu_percent must be number in 0.0..100.0")
+                pmem = item.get("memory_bytes")
+                if not _is_int(pmem) or pmem < 0:
+                    errors.append(f"{prefix}.memory_bytes must be integer >= 0")
 
     return errors
 
@@ -184,14 +195,18 @@ class MockHandler(BaseHTTPRequestHandler):
 
         cpu_pct = data["cpu"]["usage_percent"]
         ram_pct = data["memory"]["usage_percent"]
+        disk_pct = data["disk"]["usage_percent"]
         disk_r = data["disk"]["read_bytes_per_sec"]
         disk_w = data["disk"]["write_bytes_per_sec"]
         procs_run = data["processes"]["running_count"]
         procs_tot = data["processes"]["total_count"]
+        top_list = data["processes"]["top"]
+        top_hint = f" top={len(top_list)}" + (f"({top_list[0]['name']})" if top_list else "")
         print(
             f"[#{assigned_id}] host={data['host_id']} "
             f"cpu={cpu_pct:.1f}% ram={ram_pct:.1f}% "
-            f"disk={disk_r}/{disk_w} B/s procs={procs_run}/{procs_tot}",
+            f"disk={disk_pct:.1f}% io={disk_r}/{disk_w} B/s "
+            f"procs={procs_run}/{procs_tot}{top_hint}",
             flush=True,
         )
         self._send_json(201, {"status": "accepted", "id": assigned_id})
